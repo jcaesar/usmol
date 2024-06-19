@@ -3,17 +3,25 @@
     self,
     nixpkgs,
   }: let
-    inherit (pkgs.lib) mkForce remove getExe;
+    inherit (pkgs.lib) mkForce remove getExe recursiveUpdate;
     pkgs = import nixpkgs {system = "x86_64-linux";};
     linux = let
-      ob = pkgs.linux.override {
-        kernelArch = "um";
-        ignoreConfigErrors = true;
-        autoModules = false; # There's some [N/m/?] question in defconfig that the perl script can't answer
-        # defconfig = "allmodconfig"; # Alternatively to autoModules = false, you could do this, but there is 1 unknown identifier…
+      mk = pkgs.linuxManualConfig {
+        # config file for the wrong arch. pukes a bit on build start but ends up working nicely
+        inherit (pkgs.linux) version src configfile;
+        allowImportFromDerivation = true;
+      };
+      ob = mk.override {
+        stdenv = recursiveUpdate pkgs.stdenv {
+          hostPlatform.linuxArch = "um";
+          hostPlatform.linux-kernel.target = "linux";
+        };
       };
       oa = ob.overrideAttrs (old: {
-        buildFlags = remove "bzImage" old.buildFlags ++ ["linux"];
+        # buildFlags = remove "bzImage" old.buildFlags ++ ["linux" "ARCH=um"];
+        postPatch = old.postPatch + ''
+          substituteInPlace arch/um/Makefile --replace-fail 'SHELL := /bin/bash' 'SHELL := ${pkgs.stdenv.shell}'
+        '';
         installPhase = ''
           # there doesn't seem to be an install target for um
           install -Dm555 ./vmlinux $out/bin/vmlinux
@@ -76,5 +84,5 @@
     #   ubd0=${pkgs.callPackage "${nixpkgs}/nixos/lib/make-ext4-fs" { storePaths = [ sys.config.system.build.toplevel ]; }}
   };
 
-  inputs.nixpkgs.url = "github:jcaesar/fork2pr-nixpkgs/84b9867048928648c80b1f438e61ce0bc5d9ba7d"; # branch pr-10
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable"; # branch pr-10
 }
