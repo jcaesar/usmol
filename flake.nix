@@ -3,12 +3,35 @@
     self,
     nixpkgs,
   }: let
-    inherit (pkgs.lib) mkForce remove getExe recursiveUpdate;
+    inherit (pkgs.lib) mkForce getExe recursiveUpdate;
     pkgs = import nixpkgs {system = "x86_64-linux";};
+    fixShell = ''
+      substituteInPlace arch/um/Makefile --replace-fail 'SHELL := /bin/bash' 'SHELL := ${pkgs.stdenv.shell}'
+    '';
+    cfg = pkgs.linux.configfile.overrideAttrs (old: {
+      postPatch = old.postPatch + fixShell;
+      kernelArch = "um"; # here, the attr works. on the kernel itself, it doesn't.
+      # autoModules = false;
+      # ignoreConfigErrors = true;
+      # defconfig = "allmodconfig";
+      # default config sets an impossible value for RC_CORE, not possible to override :(
+      kernelConfig = ''
+        # systemd module says it needs these
+        CRYPTO_USER_API_HASH y
+        CRYPTO_HMAC y
+        CRYPTO_SHA256 y
+        TMPFS_POSIX_ACL y
+        TMPFS_XATTR y
+        BLK_DEV_INITRD y
+        # me not smart enough for module load
+        HOSTFS y
+      '';
+    });
     linux = let
       mk = pkgs.linuxManualConfig {
         # config file for the wrong arch. pukes a bit on build start but ends up working nicely
-        inherit (pkgs.linux) version src configfile;
+        inherit (pkgs.linux) version src;
+        configfile = cfg;
         allowImportFromDerivation = true;
       };
       ob = mk.override {
@@ -18,10 +41,7 @@
         };
       };
       oa = ob.overrideAttrs (old: {
-        # buildFlags = remove "bzImage" old.buildFlags ++ ["linux" "ARCH=um"];
-        postPatch = old.postPatch + ''
-          substituteInPlace arch/um/Makefile --replace-fail 'SHELL := /bin/bash' 'SHELL := ${pkgs.stdenv.shell}'
-        '';
+        postPatch = old.postPatch + fixShell;
         installPhase = ''
           # there doesn't seem to be an install target for um
           install -Dm555 ./vmlinux $out/bin/vmlinux
@@ -39,10 +59,11 @@
           boot.kernelPackages = pkgs.linuxPackagesFor linux;
           # can't use boot.kernel.enable = false; we do want modules, but we don't have a kernel - any file will do
           system.boot.loader.kernelFile = "bin/vmlinux";
-          boot.initrd.availableKernelModules = mkForce ["autofs4"]; # required by systemd
-          boot.initrd.kernelModules = mkForce []; # bunch of modules we don't have or need (tpm, efi, …)
+          boot.initrd.availableKernelModules = mkForce ["autofs4"]; # autofs is required by systemd, hostfs by this config
+          boot.initrd.kernelModules = mkForce ["hostfs"]; # bunch of modules we don't have or need (tpm, efi, …)
           boot.loader.grub.enable = false; # needed for eval
-          boot.loader.initScript.enable = false; # unlike the documentation for this option says, not actually required.
+          boot.loader.initScript.enable = false; # unlike the documentation for this option says, not actually required.i
+          system.requiredKernelConfig = mkForce []; # systemd requires DMIID, but that requires DMI, and that doesn't exist on ARCH=um
 
           fileSystems."/" = {
             device = "-";
