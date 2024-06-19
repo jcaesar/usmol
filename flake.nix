@@ -11,20 +11,26 @@
     cfg = pkgs.linux.configfile.overrideAttrs (old: {
       postPatch = old.postPatch + fixShell;
       kernelArch = "um"; # here, the attr works. on the kernel itself, it doesn't.
-      # autoModules = false;
-      # ignoreConfigErrors = true;
-      # defconfig = "allmodconfig";
-      # default config sets an impossible value for RC_CORE, not possible to override :(
+      # default config sets an impossible value for RC_CORE that breaks autoModules, not possible to override :(
       kernelConfig = ''
-        # systemd module says it needs these
+        # systemd nixos module says these are necessary
         CRYPTO_USER_API_HASH y
         CRYPTO_HMAC y
         CRYPTO_SHA256 y
         TMPFS_POSIX_ACL y
         TMPFS_XATTR y
         BLK_DEV_INITRD y
-        # me not smart enough for module load
-        HOSTFS y
+
+        # found out the hard way that at least XZ and SCRIPT are necessary for boot
+        EXPERT y
+        MODULE_COMPRESS_XZ y
+        MODULE_SIG n
+        BINFMT_MISC y
+        BINFMT_SCRIPT y
+
+        # debug
+        IKCONFIG y
+        IKCONFIG_PROC y
       '';
     });
     linux = let
@@ -66,11 +72,11 @@
           system.requiredKernelConfig = mkForce []; # systemd requires DMIID, but that requires DMI, and that doesn't exist on ARCH=um
 
           fileSystems."/" = {
-            device = "-";
+            device = "tmp";
             fsType = "tmpfs";
           };
           fileSystems."/nix/store" = {
-            device = "-";
+            device = "host";
             fsType = "hostfs";
             options = ["/nix/store"];
           };
@@ -91,18 +97,30 @@
       ];
     };
   in {
-    packages.${pkgs.system}.default = pkgs.writeScriptBin "umlvm" ''
-      set -x
-      exec ${getExe linux} \
-        mem=2G \
-        init=${sys.config.system.build.toplevel}/init \
-        initrd=${sys.config.system.build.initialRamdisk}/${sys.config.system.boot.loader.initrdFile} \
-        con0=null,fd:2 con1=fd:0,fd:1 \
-        ${toString sys.config.boot.kernelParams}
-    '';
-    # something like this is also possible instead of mounting hostsf:
-    #   root=/dev/ubda ubd0=${pkgscallPackage 
-    #   ubd0=${pkgs.callPackage "${nixpkgs}/nixos/lib/make-ext4-fs" { storePaths = [ sys.config.system.build.toplevel ]; }}
+    packages.${pkgs.system} = {
+      default = pkgs.writeScriptBin "umlvm" ''
+        set -x
+        exec ${getExe linux} \
+          mem=2G \
+          init=${sys.config.system.build.toplevel}/init \
+          initrd=${sys.config.system.build.initialRamdisk}/${sys.config.system.boot.loader.initrdFile} \
+          con0=fd:0,fd:1 con1=null,fd:2 \
+          systemd.unit=rescue.target \
+          ${toString sys.config.boot.kernelParams}
+          # con0=null,fd:2 con1=fd:0,fd:1 \
+      '';
+      # when trying to debug boot problems / enter rescue, set kernel parameters:
+      #    SYSTEMD_SULOGIN_FORCE=1 \
+      #    con0=fd:0,fd:1 con1=null,fd:2 \
+      # something like this is also possible instead of mounting hostsf:
+      #   root=/dev/ubda ubd0=${pkgscallPackage 
+      #   ubd0=${pkgs.callPackage "${nixpkgs}/nixos/lib/make-ext4-fs" { storePaths = [ sys.config.system.build.toplevel ]; }}
+
+      # for inspection
+      etc = sys.config.system.build.etc;
+      top = sys.config.system.build.toplevel;
+      config = cfg;
+    };
   };
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable"; # branch pr-10
