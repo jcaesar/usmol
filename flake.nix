@@ -11,6 +11,7 @@
     cfg = pkgs.linux.configfile.overrideAttrs (old: {
       postPatch = old.postPatch + fixShell;
       kernelArch = "um"; # here, the attr works. on the kernel itself, it doesn't.
+      # defconfig = "allmodconfig";
       # default config sets an impossible value for RC_CORE that breaks autoModules, not possible to override :(
       kernelConfig = ''
         # systemd nixos module says these are necessary
@@ -104,16 +105,18 @@
           mem=2G \
           init=${sys.config.system.build.toplevel}/init \
           initrd=${sys.config.system.build.initialRamdisk}/${sys.config.system.boot.loader.initrdFile} \
-          con0=fd:0,fd:1 con1=null,fd:2 \
-          systemd.unit=rescue.target \
+          con=null con0=null,fd:2 con1=fd:0,fd:1 \
           ${toString sys.config.boot.kernelParams}
+          # con0=fd:0,fd:1 con1=null,fd:2 \
+          # systemd.unit=rescue.target SYSTEMD_SULOGIN_FORCE=1 \
           # con0=null,fd:2 con1=fd:0,fd:1 \
       '';
       # when trying to debug boot problems / enter rescue, set kernel parameters:
-      #    SYSTEMD_SULOGIN_FORCE=1 \
-      #    con0=fd:0,fd:1 con1=null,fd:2 \
-      # something like this is also possible instead of mounting hostsf:
-      #   root=/dev/ubda ubd0=${pkgscallPackage 
+      #    SYSTEMD_SULOGIN_FORCE=1
+      #    con0=fd:0,fd:1 con1=null,fd:2
+      #    systemd.unit=rescue.target
+      # something like this is also possible instead of mounting hostfs:
+      #   root=/dev/ubda 
       #   ubd0=${pkgs.callPackage "${nixpkgs}/nixos/lib/make-ext4-fs" { storePaths = [ sys.config.system.build.toplevel ]; }}
 
       # for inspection
