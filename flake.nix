@@ -158,8 +158,7 @@
           system.stateVersion = "24.11";
 
           virtualisation.docker.enable = true;
-          # virtualisation.docker.extraOptions = "--iptables=False";
-          # virtualisation.docker.liveRestore = false; # mutex with swarm
+          virtualisation.docker.extraOptions = "--iptables=False";
 
           systemd.services.compose-run.wantedBy = ["multi-user.target"];
           systemd.services.compose-run.after = ["network.target" "docker.service"];
@@ -169,9 +168,11 @@
               name = imageName;
               tag = "latest";
               fromImage = null;
-              contents = [pkgs.miniserve pkgs.wget pkgs.bash pkgs.busybox pkgs.iproute2 pkgs.dnsutils];
+              contents = [pkgs.miniserve pkgs.wget];
             };
             port = 1337;
+            
+            # standard-ish compose file
             compose.services = {
               serve = {
                 image = imageName;
@@ -190,24 +191,26 @@
                 depends_on.serve.condition = "service_healthy";
               };
             };
+            # nonstandard part: we need extra_hosts since the internal dns relies on nat, which we don't have, and that needs static ips…
             compose.networks.default = {
               driver = "bridge";
               ipam.config = [ { subnet = "10.5.0.0/16"; "gateway" = "10.5.0.1"; }];
             };
-            # compose.networks.default.driver = "overlay";
+            compose.services.serve.networks.default.ipv4_address = "10.5.0.5";
+            compose.services.get.extra_hosts.serve  = "10.5.0.5";
+            
             composeFile = pkgs.writeText "docker-compose.yaml" (builtins.toJSON compose);
             docker = getExe pkgs.docker;
           in
             pkgs.writeScript "run-compose" ''
               #!${getExe pkgs.bash}
               set -xeuo pipefail
-              # ${docker} swarm init --advertise-addr 127.0.0.1
               ${streamImage} | ${docker} image load
               cd "$(mktemp -d)"
               mkdir data1 data2
               echo $RANDOM >data1/canary
               cp ${composeFile} docker-compose.yaml
-              ${docker} compose up --abort-on-container-exit --pull never
+              ${docker} compose up --abort-on-container-exit --pull=never
               cat data1/canary
               cat data2/canary
             '';
@@ -219,7 +222,7 @@
             else
               # kernel panic to communicate the exit code. feels like sacrilege…
               sync
-              #echo c >/proc/sysrq-trigger
+              echo c >/proc/sysrq-trigger
             fi
           '';
         }
@@ -235,9 +238,6 @@
           initrd=${sys.config.system.build.initialRamdisk}/${sys.config.system.boot.loader.initrdFile} \
           con=null con0=null,fd:2 con1=fd:0,fd:1 \
           ${toString sys.config.boot.kernelParams}
-          # con0=fd:0,fd:1 con1=null,fd:2 \
-          # systemd.unit=rescue.target SYSTEMD_SULOGIN_FORCE=1 \
-          # con0=null,fd:2 con1=fd:0,fd:1 \
       '';
       # when trying to debug boot problems / enter rescue, set kernel parameters:
       #    SYSTEMD_SULOGIN_FORCE=1
