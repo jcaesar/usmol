@@ -4,7 +4,10 @@
     nixpkgs,
   }: let
     inherit (pkgs.lib) mkForce getExe recursiveUpdate;
-    pkgs = import nixpkgs {system = "x86_64-linux";};
+    pkgs = import nixpkgs {
+      system = "x86_64-linux";
+      overlays = [(final: prev: {iptables = final.iptables-legacy;})];
+    };
     fixShell = ''
       substituteInPlace arch/um/Makefile --replace-fail 'SHELL := /bin/bash' 'SHELL := ${pkgs.stdenv.shell}'
     '';
@@ -32,6 +35,58 @@
         # debug
         IKCONFIG y
         IKCONFIG_PROC y
+
+        # doggier
+        NAMESPACES y
+        NET_NS y
+        PID_NS y
+        IPC_NS y
+        UTS_NS y
+        CGROUPS y
+        CGROUP_CPUACCT y
+        CGROUP_DEVICE y
+        CGROUP_FREEZER y
+        CGROUP_SCHED y
+        MEMCG y
+        KEYS y
+        VETH m
+        BRIDGE m
+        POSIX_MQUEUE y
+        USER_NS y
+        SECCOMP y
+        CGROUP_PIDS y
+        BLK_CGROUP y
+        BLK_DEV_THROTTLING y
+        CGROUP_NET_PRIO y
+        CFS_BANDWIDTH y
+        FAIR_GROUP_SCHED y
+        RT_GROUP_SCHED y
+        EXT4_FS y
+        EXT4_FS_POSIX_ACL y
+        EXT4_FS_SECURITY y
+        VXLAN y
+        CRYPTO y
+        CRYPTO_AEAD y
+        CRYPTO_GCM y
+        CRYPTO_SEQIV y
+        CRYPTO_GHASH y
+        XFRM y
+        XFRM_USER y
+        XFRM_ALGO y
+        INET_ESP y
+        IPVLAN m
+        MACVLAN y
+        DUMMY y
+        OVERLAY_FS y
+
+        NF_TABLES m
+        NF_CONNTRACK m
+        INET y
+        NETFILTER y
+        NET y
+        VLAN_8021Q y
+        BRIDGE_NETFILTER m
+        CGROUP_BPF y
       '';
     });
     linux = let
@@ -81,19 +136,92 @@
             fsType = "hostfs";
             options = ["/nix/store"];
           };
+          fileSystems."/mnt/host" = {
+            device = "host";
+            fsType = "hostfs";
+          };
 
           networking.hostName = "lol"; # short for linux on linux. olo
           boot.initrd.systemd.enable = true;
           services.getty.autologinUser = "root";
+          services.journald.console = "tty1";
 
           # startup is slow enough, disable some unused stuff (esp. networking)
           networking.firewall.enable = false;
-          services.nscd.enable = false;
           networking.useDHCP = false;
+          services.logrotate.enable = false;
+          services.nscd.enable = false;
+          services.timesyncd.enable = false;
           system.nssModules = mkForce [];
           systemd.oomd.enable = false;
 
           system.stateVersion = "24.11";
+
+          virtualisation.docker.enable = true;
+          # virtualisation.docker.extraOptions = "--iptables=False";
+          # virtualisation.docker.liveRestore = false; # mutex with swarm
+
+          systemd.services.compose-run.wantedBy = ["multi-user.target"];
+          systemd.services.compose-run.after = ["network.target" "docker.service"];
+          systemd.services.compose-run.serviceConfig.ExecStart = let
+            imageName = "stuff";
+            streamImage = pkgs.dockerTools.streamLayeredImage {
+              name = imageName;
+              tag = "latest";
+              fromImage = null;
+              contents = [pkgs.miniserve pkgs.wget pkgs.bash pkgs.busybox pkgs.iproute2 pkgs.dnsutils];
+            };
+            port = 1337;
+            compose.services = {
+              serve = {
+                image = imageName;
+                command = ["miniserve" "-p${toString port}" "/mnt/data"];
+                expose = [port];
+                volumes = ["./data1:/mnt/data"];
+                healthcheck = {
+                  test = ["CMD" "wget" "-qO/dev/null" "http://localhost:${toString port}/"];
+                  interval = "5s";
+                };
+              };
+              get = {
+                image = imageName;
+                command = ["wget" "http://serve:${toString port}/canary" "-O/mnt/data/canary"];
+                volumes = ["./data2:/mnt/data"];
+                depends_on.serve.condition = "service_healthy";
+              };
+            };
+            compose.networks.default = {
+              driver = "bridge";
+              ipam.config = [ { subnet = "10.5.0.0/16"; "gateway" = "10.5.0.1"; }];
+            };
+            # compose.networks.default.driver = "overlay";
+            composeFile = pkgs.writeText "docker-compose.yaml" (builtins.toJSON compose);
+            docker = getExe pkgs.docker;
+          in
+            pkgs.writeScript "run-compose" ''
+              #!${getExe pkgs.bash}
+              set -xeuo pipefail
+              # ${docker} swarm init --advertise-addr 127.0.0.1
+              ${streamImage} | ${docker} image load
+              cd "$(mktemp -d)"
+              mkdir data1 data2
+              echo $RANDOM >data1/canary
+              cp ${composeFile} docker-compose.yaml
+              ${docker} compose up --abort-on-container-exit --pull never
+              cat data1/canary
+              cat data2/canary
+            '';
+          systemd.services.compose-run.serviceConfig.ExecStopPost = pkgs.writeScript "post-compose" ''
+            #!${getExe pkgs.bash}
+            set -eux
+            if test $SERVICE_RESULT == success; then
+              systemctl poweroff
+            else
+              # kernel panic to communicate the exit code. feels like sacrilege…
+              sync
+              #echo c >/proc/sysrq-trigger
+            fi
+          '';
         }
       ];
     };
@@ -116,7 +244,7 @@
       #    con0=fd:0,fd:1 con1=null,fd:2
       #    systemd.unit=rescue.target
       # something like this is also possible instead of mounting hostfs:
-      #   root=/dev/ubda 
+      #   root=/dev/ubda
       #   ubd0=${pkgs.callPackage "${nixpkgs}/nixos/lib/make-ext4-fs" { storePaths = [ sys.config.system.build.toplevel ]; }}
 
       # for inspection
