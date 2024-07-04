@@ -131,10 +131,10 @@
             device = "tmp";
             fsType = "tmpfs";
           };
-          fileSystems."/nix/store" = {
+          fileSystems.${builtins.storeDir} = {
             device = "host";
             fsType = "hostfs";
-            options = ["/nix/store"];
+            options = [builtins.storeDir];
           };
           fileSystems."/mnt/host" = {
             device = "host";
