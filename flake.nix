@@ -114,6 +114,28 @@
       });
     in
       oa;
+    # getting networking to work without root would require some interesting archeology.
+    # This thing's got 17 patches on debian, including two CVEs…
+    # bess might be easier.
+    slirp = pkgs.stdenv.mkDerivation {
+      pname = "slirp";
+      version = "1.0.17";
+      src = let
+        arc = pkgs.fetchzip {
+          url = "mirror://sourceforge/project/slirp/slirp/1.0.16/slirp-1.0.16.tar.gz";
+          hash = "sha256-0ZQCHMYcMZmRYlfdjNvmu6ZfY21Ux/1yJhUE3vnrjVo=";
+        };
+      in "${arc}/src";
+      patches = [
+        (
+          pkgs.fetchpatch {
+            url = "mirror://sourceforge/project/slirp/slirp/1.0.17%20patch/slirp_1_0_17_patch.tar.gz";
+            hash = "sha256-LxJKrT1EOrciTpzLjntlsc1clOxBHK/N7nWXgEZbATM=";
+          }
+        )
+      ];
+      buildInputs = [pkgs.libxcrypt];
+    };
     sys = nixpkgs.lib.nixosSystem {
       inherit (pkgs) system;
       modules = [
