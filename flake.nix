@@ -309,6 +309,7 @@
           (fp "sha256-fMtF65AqETEPwDXfYr1uk/zUVdijYPuT1S3LKzcvodA=" "017_CVE-2020-8608.patch")
           ./slirp-build.patch
         ];
+        env.NIX_CFLAGS_COMPILE = "-DFULL_BOLT"; # should be an option if packaged
         preInstall = ''
           mkdir -p $out/man/man1 $out/bin # Otherwise, the install script will install the executable in $out, naming it "bin"
         '';
