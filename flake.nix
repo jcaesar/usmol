@@ -114,10 +114,9 @@
       });
     in
       oa;
-    # getting networking to work without root would require some interesting archeology.
-    # This thing's got 17 patches on debian, including two CVEs…
-    # bess might be easier.
-    slirp = pkgs.stdenv.mkDerivation {
+    # getting networking to work without root requires some interesting archeology.
+    # This thing's got 17 patches on debian, including two CVEs… and then it still doesn't compile
+    slirp = pkgs.stdenv.mkDerivation rec {
       pname = "slirp";
       version = "1.0.17";
       src = let
@@ -126,14 +125,45 @@
           hash = "sha256-0ZQCHMYcMZmRYlfdjNvmu6ZfY21Ux/1yJhUE3vnrjVo=";
         };
       in "${arc}/src";
-      patches = [
+      prePatch = ''
+        ln -s . src # debian patches expect a different source structure
+      '';
+      patches = let
+        fp = hash: patch:
+          pkgs.fetchDebianPatch {
+            inherit pname patch hash;
+            version = "1:${version}";
+            debianRevision = "11";
+          };
+      in [
         (
           pkgs.fetchpatch {
             url = "mirror://sourceforge/project/slirp/slirp/1.0.17%20patch/slirp_1_0_17_patch.tar.gz";
             hash = "sha256-LxJKrT1EOrciTpzLjntlsc1clOxBHK/N7nWXgEZbATM=";
           }
         )
+        (fp "sha256-AuGLMyxMCYlmllyMrCNro1PpAnnRTDQgRjfIW1RIoso=" "001-update-man-fix-hyphens-as-minus.patch")
+        # (fp "sha256-R12h1WfdwurtUlbQbVI6G5HYLFSnobd1oPsngBgXe0A=" "002-fix-arguements.patch") # typofix, doesn't apply
+        (fp "sha256-RnmUQLrkn6d9lov+jv0eH0TL0hIeh9XR3xIt3LemCrg=" "003-socklen_t.patch")
+        (fp "sha256-10PhVNr8zXR6QgEuVx5B49CoXi7R91p5ivKnnsWt/Kk=" "004-compilation-warnings.patch")
+        (fp "sha256-FPJvUsLbAcPWwiLkdIoPmU8sz5xWg0ZTnHvpyzmOEFo=" "005-use-snprintf.patch")
+        (fp "sha256-flcmAY88/Fb0W0i5/fU94nOlgJQ1ppEKa7IcGc5lHG8=" "006-changelog-1.0.17.patch")
+        (fp "sha256-dzIIktX2VlSSguGmpa2eGW69a+MHSQ51S9q5dX3jj/0=" "007-debian-changes.patch")
+        (fp "sha256-uvVAo4nVj2xXQjHKWiMmyedj9yjBqAgTQaelECD4H8s=" "008-slirp-amd64-log-crash.patch")
+        # (fp "sha256-PKLB0hrA/VRQKl9LehXOrtWB7jiMiAFZGrX6kPdjR8g=" "009-i-hate-perl.patch") # nix doesn't
+        (fp "sha256-vcBX5bxvtpc/cAfiqKHIKTmoF/v02bdOcjDopOCHWHs=" "010-fullbolt-fix.patch")
+        (fp "sha256-vk7tBcpLHTg8iCAt1TrOtx3T/Bnnfqwllz6GY52Xt8E=" "011-sizeof_ipv4.patch")
+        (fp "sha256-RRDKUYmodh4D0YKezl3SXcij74fTFzdp99Sz4TnielE=" "012_ipq64.patch")
+        # (fp "sha256-ntMgLRmwZjbudhdhde+92qd0hs6akZzRF0nyEhwfUhU=" "013_hurd.patch") # it hurds
+        (fp "sha256-U1Q/geKLtlXYDUe9pODb9V4WMSHDPVOtoYsGafUBEsU=" "014_CVE-2020-7039.patch")
+        (fp "sha256-9uIEVLOflhUNYJqZc/K6Bkk2pE7l87H3SqThbbJUO4Q=" "015_949003_explicit_extern_declaration.patch")
+        (fp "sha256-a76e59W73TtmouvoHSfYGeVB23TvrQpD/lsU3VxGrUw=" "016_c11b4078042_fix_64_bit_issue_in_slirp.patch")
+        (fp "sha256-fMtF65AqETEPwDXfYr1uk/zUVdijYPuT1S3LKzcvodA=" "017_CVE-2020-8608.patch")
+        ./slirp-build.patch
       ];
+      preInstall = ''
+        mkdir -p $out/man/man1 $out/bin # Otherwise, the install script will install the executable in $out, naming it "bin"
+      '';
       buildInputs = [pkgs.libxcrypt];
     };
     sys = nixpkgs.lib.nixosSystem {
@@ -193,7 +223,7 @@
               contents = [pkgs.miniserve pkgs.wget];
             };
             port = 1337;
-            
+
             # standard-ish compose file
             compose.services = {
               serve = {
@@ -216,11 +246,16 @@
             # nonstandard part: we need extra_hosts since the internal dns relies on nat, which we don't have, and that needs static ips…
             compose.networks.default = {
               driver = "bridge";
-              ipam.config = [ { subnet = "10.5.0.0/16"; "gateway" = "10.5.0.1"; }];
+              ipam.config = [
+                {
+                  subnet = "10.5.0.0/16";
+                  "gateway" = "10.5.0.1";
+                }
+              ];
             };
             compose.services.serve.networks.default.ipv4_address = "10.5.0.5";
-            compose.services.get.extra_hosts.serve  = "10.5.0.5";
-            
+            compose.services.get.extra_hosts.serve = "10.5.0.5";
+
             composeFile = pkgs.writeText "docker-compose.yaml" (builtins.toJSON compose);
             docker = getExe pkgs.docker;
           in
