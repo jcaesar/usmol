@@ -6,7 +6,6 @@
     inherit (pkgs.lib) mkForce getExe recursiveUpdate;
     pkgs = import nixpkgs {
       system = "x86_64-linux";
-      overlays = [(final: prev: {iptables = final.iptables-legacy;})];
     };
     fixShell = ''
       substituteInPlace arch/um/Makefile --replace-fail 'SHELL := /bin/bash' 'SHELL := ${pkgs.stdenv.shell}'
@@ -154,6 +153,8 @@
           services.timesyncd.enable = false;
           system.nssModules = mkForce [];
           systemd.oomd.enable = false;
+          nix.enable = false; # doesn't build with alternate store paths
+          documentation.enable = false;
 
           system.stateVersion = "24.11";
 
@@ -168,6 +169,12 @@
 
           virtualisation.docker.enable = true;
           virtualisation.docker.extraOptions = "--iptables=False";
+          # todo
+          nixpkgs.overlays = [
+            (final: prev: {
+              iptables = final.iptables-legacy;
+            })
+          ];
 
           systemd.services.compose-run.wantedBy = ["multi-user.target"];
           systemd.services.compose-run.after = ["network.target" "docker.service"];
