@@ -1,3 +1,12 @@
+# building with alternate directory:
+# export NIX_REMOTE=/tmp/usmol1
+# export NIX_STORE_DIR=/tmp/usmol1/nix/store nom build . -v --keep-going
+# nix-prefetch-url file:///nix/store/ws73d521m0im6x7nhb0836i51z2yd9dq-bzip2-1.0.6.2-autoconfiscated.patch --name bzip2-1.0.6.2-autoconfiscated.patch
+# nix-prefetch-url https://git.kernel.org/pub/scm/utils/kernel/kmod/kmod.git/snapshot/kmod-31.tar.gz --name source
+# nix-prefetch-url file:///nix/store/xjc3kbwkz4w48p9jq81mkd3cxcq7pzxm-fakeroot_1.29.orig.tar.gz --name fakeroot_1.29.orig.tar.gz
+# nix-prefetch-url file:///nix/store/j6ij02s4aq6di55xgm22hdybhjb0fmgv-also-wrap-stat-library-call.patch --name also-wrap-stat-library-call.patch
+# nix-prefetch-url file:///nix/store/y2h7bqjpc4q9g887w8pbwncjrmr4g9sx-gettext-0.21.1.tar.gz   --name gettext-0.21.1.tar.gz
+# nix build .#script -o $NIX_REMOTE/run -v --keep-going --print-build-log
 {
   outputs = {
     self,
@@ -129,6 +138,7 @@
           boot.loader.grub.enable = false; # needed for eval
           boot.loader.initScript.enable = false; # unlike the documentation for this option says, not actually required.i
           system.requiredKernelConfig = mkForce []; # systemd requires DMIID, but that requires DMI, and that doesn't exist on ARCH=um
+          boot.initrd.systemd.emergencyAccess = true;
 
           fileSystems."/" = {
             device = "tmp";
@@ -253,30 +263,33 @@
         }
       ];
     };
+    bin = pkgs.writeScriptBin "umlvm" ''
+      #!${pkgs.runtimeShell} -eux
+      SOCKD="$(mktemp --directory)"
+      SOCK="$SOCKD/slirp4netns-bess.sock"
+      trap 'rm -rf "$SOCKD"; trap - SIGTERM && kill -- -$$' SIGINT SIGTERM EXIT
+      ${getExe pkgs.slirp4netns} --target-type bess "$SOCK" &
+      ${getExe linux} \
+        mem=2G \
+        init=${sys.config.system.build.toplevel}/init \
+        initrd=${sys.config.system.build.initialRamdisk}/${sys.config.system.boot.loader.initrdFile} \
+        "vec0:transport=bess,dst=$SOCK" \
+        con=null con0=null,fd:2 con1=fd:0,fd:1 \
+        ${toString sys.config.boot.kernelParams}
+    '';
+    # when trying to debug boot problems / enter rescue, set kernel parameters:
+    #    SYSTEMD_SULOGIN_FORCE=1
+    #    con0=fd:0,fd:1 con1=null,fd:2
+    #    systemd.unit=rescue.target
+    # something like this is also possible instead of mounting hostfs:
+    #   root=/dev/ubda
+    #   ubd0=${pkgs.callPackage "${nixpkgs}/nixos/lib/make-ext4-fs" { storePaths = [ sys.config.system.build.toplevel ]; }}
   in {
     packages.${pkgs.system} = {
-      default = pkgs.writeScriptBin "umlvm" ''
-        set -eux
-        SOCKD="$(mktemp --directory)"
-        SOCK="$SOCKD/slirp4netns-bess.sock"
-        trap 'rm -rf "$SOCKD"; trap - SIGTERM && kill -- -$$' SIGINT SIGTERM EXIT
-        ${getExe pkgs.slirp4netns} --target-type bess "$SOCK" &
-        ${getExe linux} \
-          mem=2G \
-          init=${sys.config.system.build.toplevel}/init \
-          initrd=${sys.config.system.build.initialRamdisk}/${sys.config.system.boot.loader.initrdFile} \
-          "vec0:transport=bess,dst=$SOCK" \
-          con=null con0=null,fd:2 con1=fd:0,fd:1 \
-          ${toString sys.config.boot.kernelParams}
+      default = bin;
+      script = pkgs.runCommand "umlvm-run" {} ''
+        ln -s ${bin}/bin/umlvm $out
       '';
-      # when trying to debug boot problems / enter rescue, set kernel parameters:
-      #    SYSTEMD_SULOGIN_FORCE=1
-      #    con0=fd:0,fd:1 con1=null,fd:2
-      #    systemd.unit=rescue.target
-      # something like this is also possible instead of mounting hostfs:
-      #   root=/dev/ubda
-      #   ubd0=${pkgs.callPackage "${nixpkgs}/nixos/lib/make-ext4-fs" { storePaths = [ sys.config.system.build.toplevel ]; }}
-
       # for inspection
       etc = sys.config.system.build.etc;
       top = sys.config.system.build.toplevel;
