@@ -153,6 +153,27 @@
             device = "host";
             fsType = "hostfs";
           };
+          # some hackfixes for messing with the storeDir
+          boot.initrd.systemd.services.mkmounttargets = nixpkgs.lib.mkIf (builtins.storeDir != "/nix/store") {
+            # for some reason, initrd-parse-etc.service doesn't do it's thing.
+            unitConfig.DefaultDependencies = false;
+            wantedBy = ["initrd-fs.target"];
+            before = ["initrd-switch-root.service" "initrd-switch-root.service"];
+            script = ''
+              set -x
+              mount
+              if ! test -d /sysroot; then
+                mkdir -p /sysroot
+                mount -ttmpfs - /sysroot
+              fi
+              if ! test -d /sysroot/tmp/usmol1/nix/store; then
+                mkdir -p /sysroot/tmp/usmol1/nix/store /sysroot/mnt/host
+                mount -thostfs -o${builtins.storeDir} host /sysroot/${builtins.storeDir}
+              fi
+            '';
+          };
+          # Failed at step EXEC spawning …systemd-logind: No such file or directory
+          systemd.services.systemd-logind.enable = false; # It's just unnecessary?
 
           networking.hostName = "lol"; # short for linux on linux. olo
           boot.initrd.systemd.enable = true;
@@ -295,6 +316,7 @@
       top = sys.config.system.build.toplevel;
       config = cfg;
     };
+    nixosConfigurations.umlvm = sys;
   };
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable"; # branch pr-10
