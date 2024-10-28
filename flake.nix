@@ -312,6 +312,20 @@
       top = sys.config.system.build.toplevel;
       config = cfg;
     };
+    apps.${pkgs.system} = {
+      # nix run .#image | docker image load
+      # docker run --tmpfs /dev/shm:rw,nosuid,nodev,exec,size=2g --rm -ti umlvm:latest
+      image = {
+        type = "app";
+        program = "${pkgs.dockerTools.streamLayeredImage {
+          maxLayers = 2;
+          name = "umlvm";
+          tag = "latest";
+          fromImage = null;
+          config.Entrypoint = [(pkgs.lib.getExe bin)];
+        }}";
+      };
+    };
     nixosConfigurations.umlvm = sys;
   };
 
