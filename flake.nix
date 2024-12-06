@@ -88,8 +88,14 @@
         DUMMY y
         OVERLAY_FS y
 
-        NF_TABLES m
-        NF_CONNTRACK m
+        NF_TABLES y
+        NF_CONNTRACK y
+        NF_TABLES_INET y
+        NF_TABLES_NETDEV y
+        NF_FLOW_TABLE_PROCFS y
+        NF_CONNTRACK_EVENTS y
+        NF_CONNTRACK_TIMEOUT y
+        NF_CONNTRACK_TIMESTAMP y
         INET y
         NETFILTER y
         NET y
@@ -201,13 +207,6 @@
       networking.nameservers = ["10.0.2.3"];
 
       virtualisation.docker.enable = true;
-      virtualisation.docker.extraOptions = "--iptables=False";
-      # todo
-      nixpkgs.overlays = [
-        (final: prev: {
-          iptables = final.iptables-legacy;
-        })
-      ];
 
       systemd.services.compose-run.wantedBy = ["multi-user.target"];
       systemd.services.compose-run.after = ["network.target" "docker.service"];
@@ -293,6 +292,9 @@
         "vec0:transport=bess,dst=$SOCK" \
         con=null con0=null,fd:2 con1=fd:0,fd:1 \
         ${toString sys.config.boot.kernelParams}
+      stty opost
+      jobs -p | xargs -rn10 kill
+      trap - EXIT
     '';
     # when trying to debug boot problems / enter rescue, set kernel parameters:
     #    SYSTEMD_SULOGIN_FORCE=1
