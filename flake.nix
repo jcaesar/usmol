@@ -239,18 +239,6 @@
             depends_on.serve.condition = "service_healthy";
           };
         };
-        # nonstandard part: we need extra_hosts since the internal dns relies on nat, which we don't have, and that needs static ips…
-        compose.networks.default = {
-          driver = "bridge";
-          ipam.config = [
-            {
-              subnet = "10.5.0.0/16";
-              "gateway" = "10.5.0.1";
-            }
-          ];
-        };
-        compose.services.serve.networks.default.ipv4_address = "10.5.0.5";
-        compose.services.get.extra_hosts.serve = "10.5.0.5";
 
         composeFile = pkgs.writeText "docker-compose.yaml" (builtins.toJSON compose);
         docker = getExe pkgs.docker;
