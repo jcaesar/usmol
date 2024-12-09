@@ -133,7 +133,13 @@
       });
     in
       oa;
-    sys = pkgs.nixos {
+    sys = pkgs.nixos ({
+      modulesPath,
+      pkgs,
+      ...
+    }: {
+      imports = ["${modulesPath}/profiles/minimal.nix"];
+
       boot.kernelPackages = pkgs.linuxPackagesFor linux;
       # can't use boot.kernel.enable = false; we do want modules, but we don't have a kernel - any file will do
       system.boot.loader.kernelFile = "bin/vmlinux";
@@ -266,7 +272,7 @@
           echo c >/proc/sysrq-trigger
         fi
       '';
-    };
+    });
     bin = pkgs.writeScriptBin "umlvm" ''
       #!${pkgs.runtimeShell} -eux
       ttycfg="$(${coreutil "stty"} -g < /dev/tty)"
