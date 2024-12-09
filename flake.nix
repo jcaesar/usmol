@@ -176,8 +176,8 @@
             mkdir -p /sysroot
             mount -ttmpfs - /sysroot
           fi
-          if ! test -d /sysroot/tmp/usmol1/nix/store; then
-            mkdir -p /sysroot/tmp/usmol1/nix/store /sysroot/mnt/host
+          if ! test -d /sysroot/${builtins.storeDir}; then
+            mkdir -p /sysroot/${builtins.storeDir} /sysroot/mnt/host
             mount -thostfs -o${builtins.storeDir} host /sysroot/${builtins.storeDir}
           fi
         '';
