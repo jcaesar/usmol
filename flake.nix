@@ -289,7 +289,7 @@
         con=null con0=null,fd:2 con1=fd:0,fd:1 \
         ${toString sys.config.boot.kernelParams}
       { set +x; } 2>/dev/null
-      jobs -p | ${getExe' pkgs.findutils "xargs"} -rn10 kill
+      jobs -p | ${getExe' pkgs.findutils "xargs"} -rn10 ${coreutil "kill"}
     '';
     # when trying to debug boot problems / enter rescue, set kernel parameters:
     #    SYSTEMD_SULOGIN_FORCE=1
@@ -319,7 +319,10 @@
           name = "umlvm";
           tag = "latest";
           fromImage = null;
-          config.Entrypoint = [(getExe bin)];
+          config = {
+            Entrypoint = [(getExe bin)];
+            Env = ["TMPDIR=/"]; # /tmp is not guaranteed to exist
+          };
         }}";
       };
     };
