@@ -10,8 +10,7 @@
 # nix build .#script -o $NIX_REMOTE/run -v --keep-going --print-build-log
 {
   outputs = {nixpkgs, ...}: let
-    inherit (pkgs.lib) mkForce getExe getExe' recursiveUpdate;
-    coreutil = pkgs.lib.getExe' pkgs.coreutils;
+    inherit (pkgs.lib) mkForce getExe recursiveUpdate;
     pkgs = import nixpkgs {
       system = "x86_64-linux";
     };
@@ -287,34 +286,36 @@
           StandardError = "tty";
           TTYPath = "/dev/tty0";
           Type = "oneshot"; # or user-sessions won't wait for us
+          ExecStopPost = pkgs.writeScript "post-compose" ''
+            #!${pkgs.runtimeShell} -eux
+            if test $SERVICE_RESULT == success; then
+              systemctl poweroff
+            else
+              # kernel panic to communicate the exit code. feels like sacrilege…
+              sync
+              # echo c >/proc/sysrq-trigger
+            fi
+          '';
         };
         script = ''
           set -xeuo pipefail
-          ${getExe pkgs.docker-compose} up --abort-on-container-exit
+          docker compose up --abort-on-container-exit
           test "$(cat data1/canary)" == "$(cat data2/canary)"
         '';
-        serviceConfig.ExecStopPost = pkgs.writeScript "post-compose" ''
-          #!${getExe pkgs.bash} -eux
-          if test $SERVICE_RESULT == success; then
-            systemctl poweroff
-          else
-            # kernel panic to communicate the exit code. feels like sacrilege…
-            sync
-            # echo c >/proc/sysrq-trigger
-          fi
-        '';
+        path = with pkgs; [docker docker-compose];
       };
     });
     bin = pkgs.writeScriptBin "umlvm" ''
       #!${pkgs.runtimeShell} -eu
-      ttycfg="$(${coreutil "stty"} -g < /dev/tty)"
-      SOCKD="$(${coreutil "mktemp"} --directory)"
+      export PATH=${pkgs.lib.makeBinPath [pkgs.coreutils pkgs.slirp4netns pkgs.findutils linux]}
+      ttycfg="$(stty -g < /dev/tty)"
+      SOCKD="$(mktemp --directory)"
       SOCK="$SOCKD/slirp4netns-bess.sock"
-      trap '${coreutil "stty"} "$ttycfg" </dev/tty' EXIT
-      trap '${coreutil "rm"} -rf "$SOCKD"; trap - SIGTERM && kill -- -$$' SIGINT SIGTERM
+      trap 'stty "$ttycfg" </dev/tty' EXIT
+      trap 'rm -rf "$SOCKD"; trap - SIGTERM && kill -- -$$' SIGINT SIGTERM
       set -x
-      ${getExe pkgs.slirp4netns} --target-type bess "$SOCK" &
-      ${getExe linux} \
+      slirp4netns --target-type bess "$SOCK" &
+      linux \
         mem=2G \
         init=${sys.config.system.build.toplevel}/init \
         initrd=${sys.config.system.build.initialRamdisk}/${sys.config.system.boot.loader.initrdFile} \
@@ -323,7 +324,7 @@
         ${toString sys.config.boot.kernelParams} \
         "$@"
       { set +x; } 2>/dev/null
-      jobs -p | ${getExe' pkgs.findutils "xargs"} -rn10 ${coreutil "kill"}
+      jobs -p | xargs -rn10 kill
     '';
     # when trying to debug boot problems / enter rescue, set kernel parameters:
     #    SYSTEMD_SULOGIN_FORCE=1
