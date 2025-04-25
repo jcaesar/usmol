@@ -134,6 +134,7 @@
     sys = pkgs.nixos ({
       modulesPath,
       pkgs,
+      config,
       lib,
       ...
     }: {
@@ -162,23 +163,37 @@
         device = "host";
         fsType = "hostfs";
       };
+      systemd.tmpfiles.rules = [
+        "L+ /root/host - - - - /mnt/host"
+      ];
       # some hackfixes for messing with the storeDir
-      boot.initrd.systemd.services.mkmounttargets = pkgs.lib.mkIf (builtins.storeDir != "/nix/store") {
+      boot.initrd.systemd.services.mkmounttargets = {
         # for some reason, initrd-parse-etc.service doesn't do it's thing.
+        description = "Workaround for parse-etc failure";
+        enable = builtins.storeDir != "/nix/store";
         unitConfig.DefaultDependencies = false;
         wantedBy = ["initrd-fs.target"];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+        };
         before = ["initrd-switch-root.service" "initrd-switch-root.service"];
         script = ''
           set -x
           mount
-          if ! test -d /sysroot; then
-            mkdir -p /sysroot
-            mount -ttmpfs - /sysroot
-          fi
-          if ! test -d /sysroot/${builtins.storeDir}; then
-            mkdir -p /sysroot/${builtins.storeDir} /sysroot/mnt/host
-            mount -thostfs -o${builtins.storeDir} host /sysroot/${builtins.storeDir}
-          fi
+          ${lib.concatMapStringsSep "\n" (fs: ''
+              if ! test -d /sysroot${fs.mountPoint}; then
+                mkdir -p /sysroot${fs.mountPoint}
+              fi
+              mount \
+                -t${fs.fsType} \
+                -o${lib.concatStringsSep "," fs.options} \
+                ${fs.device} /sysroot${fs.mountPoint}
+            '') (
+              lib.sortOn
+              (fs: lib.stringLength fs.mountPoint)
+              (lib.attrValues config.fileSystems)
+            )}
         '';
       };
       # Failed at step EXEC spawning …systemd-logind: No such file or directory
