@@ -1,6 +1,7 @@
 # building with alternate directory:
+# (this requires around 17 GB of free space)
 # export NIX_REMOTE=/tmp/usmol1
-# export NIX_STORE_DIR=/tmp/usmol1/nix/store nom build . -v --keep-going
+# export NIX_STORE_DIR=/tmp/usmol1/nix/store
 # nix-prefetch-url file:///nix/store/ws73d521m0im6x7nhb0836i51z2yd9dq-bzip2-1.0.6.2-autoconfiscated.patch --name bzip2-1.0.6.2-autoconfiscated.patch
 # nix-prefetch-url https://git.kernel.org/pub/scm/utils/kernel/kmod/kmod.git/snapshot/kmod-31.tar.gz --name source
 # nix-prefetch-url file:///nix/store/xjc3kbwkz4w48p9jq81mkd3cxcq7pzxm-fakeroot_1.29.orig.tar.gz --name fakeroot_1.29.orig.tar.gz
@@ -198,15 +199,14 @@
       systemd.oomd.enable = false;
       nix.enable = false; # doesn't build with alternate store paths
       documentation.enable = false;
+      systemd.services.mount-pstore.enable = false;
 
       system.stateVersion = "24.11";
 
-      networking.interfaces.vec0.ipv4.addresses = [
-        {
-          address = "10.0.2.100";
-          prefixLength = 24;
-        }
-      ];
+      networking.interfaces.vec0.ipv4.addresses = lib.singleton {
+        address = "10.0.2.100";
+        prefixLength = 24;
+      };
       networking.defaultGateway = "10.0.2.2";
       networking.nameservers = ["10.0.2.3"];
 
@@ -291,12 +291,13 @@
       };
     });
     bin = pkgs.writeScriptBin "umlvm" ''
-      #!${pkgs.runtimeShell} -eux
+      #!${pkgs.runtimeShell} -eu
       ttycfg="$(${coreutil "stty"} -g < /dev/tty)"
       SOCKD="$(${coreutil "mktemp"} --directory)"
       SOCK="$SOCKD/slirp4netns-bess.sock"
       trap '${coreutil "stty"} "$ttycfg" </dev/tty' EXIT
       trap '${coreutil "rm"} -rf "$SOCKD"; trap - SIGTERM && kill -- -$$' SIGINT SIGTERM
+      set -x
       ${getExe pkgs.slirp4netns} --target-type bess "$SOCK" &
       ${getExe linux} \
         mem=2G \
