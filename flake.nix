@@ -8,10 +8,7 @@
 # nix-prefetch-url file:///nix/store/y2h7bqjpc4q9g887w8pbwncjrmr4g9sx-gettext-0.21.1.tar.gz   --name gettext-0.21.1.tar.gz
 # nix build .#script -o $NIX_REMOTE/run -v --keep-going --print-build-log
 {
-  outputs = {
-    self,
-    nixpkgs,
-  }: let
+  outputs = {nixpkgs, ...}: let
     inherit (pkgs.lib) mkForce getExe getExe' recursiveUpdate;
     coreutil = pkgs.lib.getExe' pkgs.coreutils;
     pkgs = import nixpkgs {
@@ -136,6 +133,7 @@
     sys = pkgs.nixos ({
       modulesPath,
       pkgs,
+      lib,
       ...
     }: {
       imports = ["${modulesPath}/profiles/minimal.nix"];
@@ -188,7 +186,7 @@
       networking.hostName = "lol"; # short for linux on linux. olo
       boot.initrd.systemd.enable = true;
       services.getty.autologinUser = "root";
-      services.journald.console = "tty1";
+      # services.journald.console = "tty1"; # useful for debugging
 
       # startup is slow enough, disable some unused stuff
       networking.firewall.enable = false;
@@ -213,65 +211,84 @@
       networking.nameservers = ["10.0.2.3"];
 
       virtualisation.docker.enable = true;
+      environment.defaultPackages = [pkgs.docker-compose];
 
-      systemd.services.compose-run.wantedBy = ["multi-user.target"];
-      systemd.services.compose-run.after = ["network.target" "docker.service"];
-      systemd.services.compose-run.serviceConfig.ExecStart = let
-        imageName = "stuff";
-        streamImage = pkgs.dockerTools.streamLayeredImage {
-          name = imageName;
-          tag = "latest";
-          fromImage = null;
-          contents = [pkgs.miniserve pkgs.wget];
-        };
-        port = 1337;
+      systemd.services.compose-example = {
+        description = "Set up compose example";
+        wantedBy = ["multi-user.target"];
+        after = ["network.target" "docker.service"];
+        before = ["systemd-user-sessions.service"];
+        script = let
+          imageName = "stuff";
+          streamImage = pkgs.dockerTools.streamLayeredImage {
+            name = imageName;
+            tag = "latest";
+            fromImage = null;
+            contents = [pkgs.miniserve pkgs.wget];
+          };
+          port = 1337;
 
-        # standard-ish compose file
-        compose.services = {
-          serve = {
-            image = imageName;
-            command = ["miniserve" "-p${toString port}" "/mnt/data"];
-            expose = [port];
-            volumes = ["./data1:/mnt/data"];
-            healthcheck = {
-              test = ["CMD" "wget" "-qO/dev/null" "http://localhost:${toString port}/"];
-              interval = "5s";
+          # standard-ish compose file
+          compose.services = {
+            serve = {
+              image = imageName;
+              command = ["miniserve" "-p${toString port}" "/mnt/data"];
+              expose = [port];
+              volumes = ["./data1:/mnt/data"];
+              healthcheck = {
+                test = ["CMD" "wget" "-qO/dev/null" "http://localhost:${toString port}/"];
+                interval = "5s";
+              };
+            };
+            get = {
+              image = imageName;
+              command = ["wget" "http://serve:${toString port}/canary" "-O/mnt/data/canary"];
+              volumes = ["./data2:/mnt/data"];
+              depends_on.serve.condition = "service_healthy";
             };
           };
-          get = {
-            image = imageName;
-            command = ["wget" "http://serve:${toString port}/canary" "-O/mnt/data/canary"];
-            volumes = ["./data2:/mnt/data"];
-            depends_on.serve.condition = "service_healthy";
-          };
-        };
 
-        composeFile = pkgs.writeText "docker-compose.yaml" (builtins.toJSON compose);
-        docker = getExe pkgs.docker;
-      in
-        pkgs.writeScript "run-compose" ''
-          #!${getExe pkgs.bash}
+          composeFile = pkgs.writeText "docker-compose.yaml" (builtins.toJSON compose);
+          docker = getExe pkgs.docker;
+        in ''
           set -xeuo pipefail
           ${streamImage} | ${docker} image load
-          cd "$(mktemp -d)"
-          mkdir data1 data2
-          echo $RANDOM >data1/canary
-          cp ${composeFile} docker-compose.yaml
-          ${docker} compose up --abort-on-container-exit --pull=never
-          cat data1/canary
-          cat data2/canary
+          mkdir -p /root/example/data{1,2}
+          echo $RANDOM >/root/example/data1/canary
+          ${getExe pkgs.jq} . ${composeFile} >/root/example/docker-compose.yaml
         '';
-      systemd.services.compose-run.serviceConfig.ExecStopPost = pkgs.writeScript "post-compose" ''
-        #!${getExe pkgs.bash}
-        set -eux
-        if test $SERVICE_RESULT == success; then
-          systemctl poweroff
-        else
-          # kernel panic to communicate the exit code. feels like sacrilege…
-          sync
-          echo c >/proc/sysrq-trigger
-        fi
-      '';
+        serviceConfig.Type = "oneshot";
+      };
+      systemd.services.compose-demo = {
+        description = "Run compose example";
+        wantedBy = ["multi-user.target"];
+        after = ["compose-example.service"];
+        before = ["systemd-user-sessions.service"];
+        unitConfig.ConditionKernelCommandLine = ["usmol-run-compose-demo"];
+        serviceConfig = {
+          WorkingDirectory = "/root/example";
+          StandardInput = "tty";
+          StandardOutput = "tty";
+          StandardError = "tty";
+          TTYPath = "/dev/tty0";
+          Type = "oneshot"; # or user-sessions won't wait for us
+        };
+        script = ''
+          set -xeuo pipefail
+          ${getExe pkgs.docker-compose} up --abort-on-container-exit
+          test "$(cat data1/canary)" == "$(cat data2/canary)"
+        '';
+        serviceConfig.ExecStopPost = pkgs.writeScript "post-compose" ''
+          #!${getExe pkgs.bash} -eux
+          if test $SERVICE_RESULT == success; then
+            systemctl poweroff
+          else
+            # kernel panic to communicate the exit code. feels like sacrilege…
+            sync
+            # echo c >/proc/sysrq-trigger
+          fi
+        '';
+      };
     });
     bin = pkgs.writeScriptBin "umlvm" ''
       #!${pkgs.runtimeShell} -eux
@@ -287,7 +304,8 @@
         initrd=${sys.config.system.build.initialRamdisk}/${sys.config.system.boot.loader.initrdFile} \
         "vec0:transport=bess,dst=$SOCK" \
         con=null con0=null,fd:2 con1=fd:0,fd:1 \
-        ${toString sys.config.boot.kernelParams}
+        ${toString sys.config.boot.kernelParams} \
+        "$@"
       { set +x; } 2>/dev/null
       jobs -p | ${getExe' pkgs.findutils "xargs"} -rn10 ${coreutil "kill"}
     '';
