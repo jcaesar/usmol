@@ -336,9 +336,6 @@
   in {
     packages.${pkgs.system} = {
       default = bin;
-      script = pkgs.runCommand "umlvm-run" {} ''
-        ln -s ${bin}/bin/umlvm $out
-      '';
       # for inspection
       etc = sys.config.system.build.etc;
       top = sys.config.system.build.toplevel;
@@ -349,14 +346,21 @@
       # docker run --tmpfs /dev/shm:rw,nosuid,nodev,exec,size=2g --rm -ti umlvm:latest
       image = {
         type = "app";
-        program = "${pkgs.dockerTools.streamLayeredImage {
+        program = let
+          rel = pkgs.lib.removeSuffix "/nix/store" builtins.storeDir;
+        in "${pkgs.dockerTools.streamLayeredImage {
           maxLayers = 2;
           name = "umlvm";
           tag = "latest";
           fromImage = null;
+          extraCommands = ''
+            mkdir -p ./${rel}
+            ln -s ${getExe bin} ./${rel}/run
+          '';
           config = {
-            Entrypoint = [(getExe bin)];
+            Entrypoint = ["${rel}/run"];
             Env = ["TMPDIR=/"]; # /tmp is not guaranteed to exist
+            Labels."org.opencontainers.image.source" = "https://github.com/jcaesar/usmol";
           };
         }}";
       };
