@@ -103,6 +103,41 @@
         # bess
         UML_NET y
         UML_NET_VECTOR y
+
+        # speedup
+        WLAN n
+        CFG80211 n
+        INPUT n
+        IOMMU_SUPPORT n
+        SUSPEND n
+        I3C n
+        I2C n
+        BT n
+        FPGA n
+        NEW_LEDS n
+        SOUND n
+        IIO n
+        MISC_FILESYSTEMS n
+        F2FS_FS n
+        9P_FS n
+        REISERFS_FS n
+        AFS_FS n
+        NTFS_FS n
+        NTFS3_FS n
+        JFS_FS n
+        JOLIET n
+        UDF_FS n
+        CIFS n
+        SMB_SERVER n
+        # BCACHEFS_FS n
+        # SMBFS n
+        # ACPI n
+        # MEDIA_SUPPORT n
+        # SND n
+        # USB n
+        # DRM n
+        # PCI n
+        # SPI n
       '';
     });
     linux = let
