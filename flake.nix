@@ -14,11 +14,7 @@
     pkgs = import nixpkgs {
       system = "x86_64-linux";
     };
-    fixShell = ''
-      substituteInPlace arch/um/Makefile --replace-fail 'SHELL := /bin/bash' 'SHELL := ${pkgs.stdenv.shell}'
-    '';
     cfg = pkgs.linux.configfile.overrideAttrs (old: {
-      postPatch = old.postPatch + fixShell;
       kernelArch = "um"; # here, the attr works. on the kernel itself, it doesn't.
       # defconfig = "allmodconfig";
       # default config sets an impossible value for RC_CORE that breaks autoModules, not possible to override :(
@@ -33,7 +29,9 @@
 
         # found out the hard way that at least XZ and SCRIPT are necessary for boot
         EXPERT y
+        MODULE_COMPRESS y
         MODULE_COMPRESS_XZ y
+        MODULE_COMPRESS_ALL y
         MODULE_SIG n
         BINFMT_MISC y
         BINFMT_SCRIPT y
@@ -115,7 +113,6 @@
         BT n
         FPGA n
         NEW_LEDS n
-        SOUND n
         IIO n
         MISC_FILESYSTEMS n
         F2FS_FS n
@@ -129,6 +126,7 @@
         UDF_FS n
         CIFS n
         SMB_SERVER n
+        # SOUND n
         # BCACHEFS_FS n
         # SMBFS n
         # ACPI n
@@ -154,7 +152,6 @@
         };
       };
       oa = ob.overrideAttrs (old: {
-        postPatch = old.postPatch + fixShell;
         installPhase = ''
           # there doesn't seem to be an install target for um
           install -Dm555 ./vmlinux $out/bin/vmlinux
