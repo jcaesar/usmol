@@ -88,7 +88,7 @@ mv tmp/usmol1 /tmp
 /tmp/usmol1/run
 ```
 
-I can also have it run a demo docker compse file,
+I can also have it run a demo docker compose file,
 that transfers a file from one container to another:
 
 ```bash
