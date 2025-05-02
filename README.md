@@ -51,7 +51,7 @@ No. For several reasons.
    ```console
    $ docker pull liftm/usmol
    latest: Pulling from liftm/usmol
-   d76c97f8cf21: Downloading 4.2MB/419.7MB
+   d76c97f8cf21: Downloading 4.2MB/412.7MB
    ```
    For comparison, `docker:dind` is only `134 MB`.
 
@@ -93,6 +93,11 @@ that transfers a file from one container to another:
 
 ```bash
 docker run --tmpfs /dev/shm:rw,nosuid,nodev,exec,size=2g --rm -ti liftm/usmol quiet usmol-run-compose-demo
+```
+
+Lastly, this does run in singularity, too:
+```bash
+singularity run --no-mount tmp --env TMPDIR=/dev/shm docker://liftm/usmol
 ```
 
 ## Footnotes

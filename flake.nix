@@ -381,20 +381,20 @@
       # docker run --tmpfs /dev/shm:rw,nosuid,nodev,exec,size=2g --rm -ti umlvm:latest
       image = let
         rel = pkgs.lib.removeSuffix "/nix/store" builtins.storeDir;
-      in "${pkgs.dockerTools.buildImage {
-        name = "umlvm";
+      in pkgs.dockerTools.buildImage {
+        name = "docker.io/liftm/usmol";
         tag = "latest";
         fromImage = null;
         extraCommands = ''
           mkdir -p ./${rel}
           ln -s ${getExe bin} ./${rel}/run
+          mkdir -p ./tmp
         '';
         config = {
           Entrypoint = ["${rel}/run"];
-          Env = ["TMPDIR=/"]; # /tmp is not guaranteed to exist
           Labels."org.opencontainers.image.source" = "https://github.com/jcaesar/usmol";
         };
-      }}";
+      };
       # for inspection
       etc = sys.config.system.build.etc;
       top = sys.config.system.build.toplevel;
