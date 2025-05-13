@@ -69,9 +69,11 @@ No. For several reasons.
    like no `nat` table for `iptables` (making docker networking difficult).
 
 4. You have to go through one more layer of wrapping,
-   making handling volumes, command line arguments, and exit codes difficult.
+   making handling volumes, incoming connections, command line arguments, and exit codes difficult.
 
 5. I definitely won't be keeping this up-to-date.
+
+Something like [nestybox](https://blog.nestybox.com/2022/01/03/dink.html) might be the real solution, but I haven't looked into it.
 
 ## Can I do a few more tricks?
 
